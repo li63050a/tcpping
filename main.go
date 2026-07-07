@@ -7,13 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"regexp"
 	"sort"
-	"strings"
 	"time"
 )
 
 // resolveHost 解析主机名到 IP 地址
-// 优先使用 Go 内置解析，失败时调用系统 getent 命令
+// 优先使用 Go 内置解析，失败时调用系统 ping 命令获取 IP
 func resolveHost(host string) (string, error) {
 	// 如果已经是 IP 地址，直接返回
 	if ip := net.ParseIP(host); ip != nil {
@@ -26,18 +26,35 @@ func resolveHost(host string) (string, error) {
 		return ips[0], nil
 	}
 
-	// 内置解析失败，使用系统 getent 命令
-	fmt.Printf("内置 DNS 解析失败，尝试使用系统 getent 解析 %s ...\n", host)
-	out, err := exec.Command("getent", "hosts", host).Output()
+	// 内置解析失败，使用 ping 命令解析
+	fmt.Printf("内置 DNS 解析失败，尝试用 ping 解析 %s ...\n", host)
+	return resolveViaPing(host)
+}
+
+// resolveViaPing 通过 ping 命令提取域名对应的 IP
+func resolveViaPing(host string) (string, error) {
+	out, err := exec.Command("ping", "-c", "1", host).Output()
 	if err != nil {
-		return "", fmt.Errorf("所有解析方式均失败: %v", err)
+		return "", fmt.Errorf("ping 命令执行失败: %v", err)
 	}
-	// getent hosts 输出格式： "ip_address hostname aliases..."
-	fields := strings.Fields(string(out))
-	if len(fields) < 1 {
-		return "", fmt.Errorf("getent 返回异常: %s", string(out))
+
+	output := string(out)
+
+	// 匹配 "PING baidu.com (124.237.177.164)" 格式
+	re := regexp.MustCompile(`PING\s+\S+\s+\(([0-9.]+)\)`)
+	matches := re.FindStringSubmatch(output)
+	if len(matches) > 1 {
+		return matches[1], nil
 	}
-	return fields[0], nil
+
+	// 如果上面没匹配，可能 ping 直接给了 IP（如 "PING 124.237.177.164"）
+	re2 := regexp.MustCompile(`PING\s+([0-9.]+)`)
+	matches2 := re2.FindStringSubmatch(output)
+	if len(matches2) > 1 {
+		return matches2[1], nil
+	}
+
+	return "", fmt.Errorf("无法从 ping 输出中提取 IP:\n%s", output)
 }
 
 func main() {
@@ -61,7 +78,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 解析主机（可能为域名）
+	// 解析主机
 	ip, err := resolveHost(host)
 	if err != nil {
 		fmt.Printf("解析主机 %s 失败: %v\n", host, err)
