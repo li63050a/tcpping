@@ -14,7 +14,7 @@
 ## 快速开始
 
 ```bash
-git clone https://github.com/yourname/tcpping.git
+git clone https://github.com/li63050a/tcpping.git
 cd tcpping
 go build -o tcpping main.go
 ./tcpping google.com 443 -c 4
